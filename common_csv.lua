@@ -7,7 +7,7 @@ local common_csv = {}
 ---@field _lines table
 local parsed_csv = {}
 parsed_csv.__index = parsed_csv
-parsed_csv.__tostring = function(self)
+function parsed_csv:__tostring()
   return self._csv
 end
 
@@ -146,54 +146,38 @@ function parsed_csv:line(index)
   return results
 end
 
----@param data_table table
----@param min_columns number|nil
-function parsed_csv:append(data_table, min_columns)
-  local new_csv_part = common_csv.build_csv(data_table, min_columns)
+---@param line_array string[]
+---@return string[] language_list
+---@return number min_columns
+function common_csv.parse_header_line(line_array)
+  local language_list = {}
 
-  if new_csv_part == '' then
-    return
+  local array_length = #line_array
+  if array_length < 2 then
+    return language_list, 1
   end
 
-  local old_csv = self._csv
-  local end_pos = 0
-
-  if #self._lines > 0 then
-    end_pos = self._lines[#self._lines][2]
+  for col = 2, array_length do
+    local field = line_array[col]
+    if field == "" then
+      return language_list, col - 1
+    end
+    table.insert(language_list, field)
   end
 
-  local splice_pos = old_csv:find('\n', end_pos, true)
-  if splice_pos == nil then
-    splice_pos = end_pos
+  return language_list, array_length
+end
+
+---@param line_index number|nil
+---@return string[] language_list
+---@return number min_columns
+function parsed_csv:parse_header(line_index)
+  local line_data = self:line(line_index or 1)
+  if line_data == nil then
+    return {}, 1
   end
 
-  local offset
-  local new_csv_full
-  if splice_pos == nil then
-    offset = end_pos + 1
-    local old_csv_part = old_csv:sub(1, end_pos)
-    new_csv_full = old_csv_part .. '\n' .. new_csv_part
-  else
-    offset = splice_pos
-    local old_csv_part = old_csv:sub(1, splice_pos)
-    new_csv_full = old_csv_part .. new_csv_part
-  end
-
-  local temp_parser = common_csv.parse(new_csv_part)
-
-  for _, line_indices in ipairs(temp_parser._lines) do
-    line_indices[1] = line_indices[1] + offset
-    line_indices[2] = line_indices[2] + offset
-    table.insert(self._lines, line_indices)
-  end
-
-  for key, value_indices in pairs(temp_parser._data) do
-    value_indices[1] = value_indices[1] + offset
-    value_indices[2] = value_indices[2] + offset
-    self._data[key] = value_indices
-  end
-
-  self._csv = new_csv_full
+  return common_csv.parse_header_line(line_data)
 end
 
 ---@param field string
@@ -282,6 +266,10 @@ function common_csv.build_line_array(value, min_columns)
     column_count = column_count + 1
   end
 
+  if column_count == 0 then
+    return nil
+  end
+
   if column_count < min_columns then
     table.insert(fields, string.rep(',', min_columns - column_count - 1))
   end
@@ -315,6 +303,77 @@ function common_csv.build_csv(data_table, min_columns)
   end
   table.insert(lines, "")
   return table.concat(lines, "\n")
+end
+
+---@param data_table table
+---@param min_columns number|nil
+function parsed_csv:append(data_table, min_columns)
+  local old_csv = self._csv
+  local end_pos = 0
+
+  local line_count = #self._lines
+  if line_count > 0 then
+    end_pos = self._lines[line_count][2]
+  end
+
+  local new_parts = {}
+  local current_offset
+  if end_pos == 0 then
+    current_offset = -1
+  else
+    new_parts[1] = ""
+    current_offset = end_pos
+  end
+
+  local function _append_single_line(key_raw, line_str)
+    table.insert(new_parts, line_str)
+
+    local line_len = #line_str
+    local line_start = current_offset + 2
+    local line_end = current_offset + 1 + line_len
+
+    if key_raw:find(',') == nil then
+      if key_raw ~= '' then
+        self._data[key_raw] = { line_start + #key_raw + 1, line_end }
+      end
+    else
+      self._data[key_raw] = { line_start + #key_raw + 3, line_end }
+    end
+
+    table.insert(self._lines, { line_start, line_end })
+
+    current_offset = line_end
+  end
+
+  local array_keys = {}
+  for index, value in ipairs(data_table) do
+    array_keys[index] = true
+    local key = value[1]
+    local line_str = common_csv.build_line_array(value, min_columns)
+    if line_str ~= nil then
+      _append_single_line(key, line_str)
+    end
+  end
+
+  for key, value in pairs(data_table) do
+    if not array_keys[key] then
+      local line_str = common_csv.build_line_kv(key, value, min_columns)
+      if line_str ~= nil then
+        _append_single_line(key, line_str)
+      end
+    end
+  end
+
+  if new_parts[2] == nil then
+    return
+  end
+
+  if end_pos ~= 0 then
+    new_parts[1] = old_csv:sub(1, end_pos)
+  end
+
+  table.insert(new_parts, "")
+  self._csv = table.concat(new_parts, '\n')
 end
 
 return common_csv
