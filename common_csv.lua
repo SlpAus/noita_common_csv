@@ -62,7 +62,7 @@ function common_csv.parse(csv_string)
     local pos = 1
     while pos <= len do
         local line_end_pos
-        local next_line_start = csv_string:find('\n', pos)
+        local next_line_start = csv_string:find('\n', pos, true)
         if next_line_start ~= nil then
             if csv_string:byte(next_line_start - 1) == 13 --[[ '\r' ]] then
                 line_end_pos = next_line_start - 2
@@ -187,7 +187,7 @@ local function _process_field(field)
             break
         end
 
-        local end_seq_pos = field:find('[^"]', start_seq + 1, true)
+        local end_seq_pos = field:find('[^"]', start_seq + 1)
         if end_seq_pos == nil then
             if (#field - start_seq + 1) % 2 ~= 0 then
                 return nil
@@ -203,7 +203,7 @@ local function _process_field(field)
         pos = end_seq_pos + 1
     end
 
-    if field:find(',') then
+    if field:find(',', 0, true) then
         return '"' .. field .. '"'
     end
 
@@ -332,7 +332,7 @@ function parsed_csv:append(data_table, min_columns)
         local line_start = current_offset + 2
         local line_end = current_offset + 1 + line_len
 
-        if key_raw:find(',') == nil then
+        if key_raw:find(',', 0, true) == nil then
             if key_raw ~= '' then
                 self._data[key_raw] = { line_start + #key_raw + 1, line_end }
             end
